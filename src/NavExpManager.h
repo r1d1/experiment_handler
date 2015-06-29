@@ -30,6 +30,9 @@
 
 #define NODECONTROLRATE 80
 
+typedef std::pair<std::string, float> ActionReward;
+typedef std::pair<std::string, std::string> StateAction;
+
 class NavExpManager
 {
 	private :
@@ -54,13 +57,22 @@ class NavExpManager
 
 		// Actions decided and executed :
 		BP_experiment::StateReward robotState;
-		BP_experiment::Actions decision;
+		BP_experiment::Actions actionDone;
 
 		BP_experiment::StateReward previousState;
+		
+		std_msgs::Float32 rewardToSend;
+		//BP_experiment::Reward rewardToSent;
 		//------------------------------------------------
-		bool stateChanged;
+		bool robotStateChanged;
+		bool actionChanged;
 		bool doWeRun;
 
+		//------------------------------------------------
+		// State - Action - Reward Knowledge :
+		//std::map<std::pair<std::string, std::string>, float> knownSAR;
+		//std::map<std::string, ActionReward> knownSAR;
+		std::map<StateAction, float> knownSAR;
 		//------------------------------------------------
 		// Reward obtained :
 		float winReward;

@@ -2,7 +2,7 @@
 
  * @author : Erwan Renaudo
  * @created : 27/06/2015 
- * @description : This node learns the regularities of robot actions in the block push experiment.
+ * @description : This node manages navigation experiment
  */
 
 #include "NavExpManager.h"
@@ -24,7 +24,7 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	robotState.contact = 0;
 	robotState.view = 0;
 	robotState.reward = 0.0;
-	stateChanged = false;
+	robotStateChanged = false;
 	previousState = robotState;
 
 	// Reward to remember :
@@ -32,10 +32,33 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 
 	if( loadFile.compare("none") )
 	{
-		ROS_WARN("Ensure you provided state and action space size consistent with the log file you want to load ");
+		ROS_WARN("Loading task file : %s", loadFile.c_str());
 		std::ifstream inFile;
 		inFile.open(loadFile.c_str());
-//		inFile >> defaultWeights[i][j];
+		// Processing task file :
+
+		std::cout << "Processing input file " << std::endl;
+		//std::string line;
+		std::string state;
+		std::string action;
+		float reward;
+		while (inFile >> state >> action >> reward)
+		{
+			if( !state.compare("all") )
+			{
+				std::cout << "Default value for all states !" << std::endl;
+			}
+			if( !action.compare("all") ){ std::cout << "Default value for all actions !" << std::endl; }
+			//inFile >> state >> action >> reward;
+			//line >> state >> action >> reward
+			//std::cout << line << std::endl;
+			StateAction stac(state, action);
+			//ActionReward acrew(action, reward);
+			//knownSAR.insert(std::pair<std::string, ActionReward>(state, acrew));
+			knownSAR.insert(std::pair<StateAction, float>(stac, reward));
+			std::cout << state << " - " << action << " - " << reward << std::endl << "--------------------" << std::endl;
+		}
+		//std::cout << "... done" << std::endl;
 		inFile.close();
 	}
 
@@ -51,6 +74,8 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	actioncount = 0;
 	timecount = 0;
 	nodeStartTime = ros::Time::now();
+
+	doWeRun = true;
 
 	//------------------------------------------------------------------
 	// Logs :
@@ -150,26 +175,64 @@ NavExpManager::~NavExpManager()
 }
 
 //==========================================================================
-
 // When we get the state and reward information, we update the internal State/Reward information :
 void NavExpManager::stateCallback(const BP_experiment::StateReward msg)
 {
 	// New state management (to be used) :
+	std::cout << "State Callback" << std::endl;
 	robotState = msg;
-	stateChanged = true;
-	//reward_log << timecount << " " << actioncount << " " << winReward << " " << ros::Time::now() - nodeStartTime << std::endl;
+	robotStateChanged = true;
 }
 
-void NavExpManager::actionCallback(const BP_experiment::Actions msg){}
+//--------------------------------------------------------------------------
+
+void NavExpManager::actionCallback(const BP_experiment::Actions msg)
+{
+	std::cout << "Action Callback" << std::endl;
+	actionDone = msg;
+	actionChanged = true;
+	actioncount++;
+}
 //======================================================================
 
 void NavExpManager::timerCallback(const ros::TimerEvent&)
 {
-	if( stateChanged )
+	
+	if(robotStateChanged && actionChanged)
 	{
-		std::cout << "AC : " << actioncount << std::endl; 
-		reward_pub.publish(decision);
-		stateChanged=false;
+		//std::cout << "AC : " << actioncount << std::endl; 
+		std::cout << "Was in : " << robotState.stateID << " and did " << actionDone.actionID << std::endl; 
+		// Checking for the reward to send :
+		std::ostringstream oss;
+		oss << actionDone.actionID;
+		std::string action = oss.str();
+
+		//ActionReward currStac(robotState.stateID, action);
+
+		StateAction currStac(robotState.stateID, action);
+		std::map<StateAction, float>::iterator it = knownSAR.find(currStac);
+		//std::map<std::string, ActionReward>::iterator it = knownSAR.find(robotState.stateID);
+		//for(std::map<std::string, ActionReward>::iterator st=knownSAR.begin() ; st != knownSAR.end() ; st++){ std::cout << st->first << " - " << (st->second).first << " " << (st->second).second << std::endl;	}
+		for(std::map<StateAction, float>::iterator st=knownSAR.begin() ; st != knownSAR.end() ; st++){ std::cout << (st->first).first << " - " << (st->first).second << " " << (st->second) << std::endl;	}
+
+		if ( it != knownSAR.end() )
+		{
+			// If found, return the corresponding reward :
+			rewardToSend.data = (it->second);
+			//rewardToSend.data = (it->second).second;
+			//std::cout << (it->second).first << " " << (it->second).second << std::endl;
+			std::cout << (it->first).first << " " << (it->first).second << std::endl;
+
+		}
+		else
+		{
+//			knownSAR.at("all")// If S-A not found, return the default reward :
+		}
+		std::cout << rewardToSend << std::endl;
+		reward_pub.publish(rewardToSend);
+		rewardToSend.data = 0.0;
+		robotStateChanged=false;
+		actionChanged=false;
 
 	}
 	timecount++;
@@ -190,112 +253,71 @@ int main(int argc, char** argv)
 
 	int opt;
 	// temp variables to store parameters, named according to options :
-	int x, d, c;
-	x = d = 0;
-	float a, g, t, s;
-	a = 0.1,  g = 0.9, t = 0.5;
-	s = 0.1;
-	std::string D, L="none";
-
+	int expe, dur;
+	expe = dur = 0;
+	std::string D="dec", load="none";
 	int fixedSeed = -1;
-	int insize=1, outsize=1;
 
 	const struct option availableOptions[] = {
 		{"help", no_argument, 0, 'h'},
-		{"seed", optional_argument, NULL, 'b'},
+		{"seed", optional_argument, NULL, 's'},
 		{"load", optional_argument, NULL, 'L'},
-		{"statesize", optional_argument, NULL, 'S'},
-		{"actionnumber", optional_argument, NULL, 'A'},
 		{"duration", optional_argument, 0, 'D'},
 		{0,0,0,0}
 	};
 
-	while( (opt = getopt_long(argc, argv, "xdLtbD:agh", availableOptions, NULL) ) != -1)
+	while( (opt = getopt_long(argc, argv, "xdLbD:agh", availableOptions, NULL) ) != -1)
 	{
 		switch(opt)
 		{
-			case 'S' :
-				// Set input state size
-				insize = atoi(argv[optind]);
-				std::cout << " State size : " << insize << std::endl;
-			break;
-			case 'A' :
-				// Set action number !
-				outsize = atoi(argv[optind]);
-				std::cout << " Action number : " << outsize << std::endl;
-			break;
 			case 'L' :
 				// Set Seed for random values
-				L = argv[optind];
-				std::cout << " Load knowledge from : " << L << std::endl;
+				load = argv[optind];
+				std::cout << " Load knowledge from : " << load << std::endl;
 			break;
-			case 'b' :
+			case 's' :
 				// Set Seed for random values
 				fixedSeed = atoi(argv[optind]);
 				std::cout << " Seed set : " << fixedSeed << std::endl;
 			break;
 			case 'x' : // set eXperience ID
-				x = atoi(argv[optind]);
-				std::cout << " Experience : " << x << std::endl;
+				expe = atoi(argv[optind]);
+				std::cout << " Experience : " << expe << std::endl;
 			break;
 			case 'd' : // set experience Duration
-				d = atoi(argv[optind]);
-				std::cout << " Duration : " << d << std::endl;
+				dur = atoi(argv[optind]);
+				std::cout << " Duration : " << dur << std::endl;
 			break;
 			case 'D' : // set experience Duration
 				D = argv[optind];
 				std::cout << " time unit : " << D << std::endl;
 			break;
-			case 't' : // set Tau (Temperature of softmax)
-				t = atof(argv[optind]);
-				std::cout << " Softmax Temperature : " << t << std::endl;
-			break;
-			case 'a' : // set Alpha (learning rate)
-				a = atof(argv[optind]);
-				std::cout << " Learning rate : " << a << std::endl;
-			break;
-			case 'g' : // set Gamma (discount factor)
-				g = atof(argv[optind]);
-				std::cout << " Discount factor : " << g << std::endl;
-			break;
-		//	case 's' : // set elementof memory duration
-		///		s = atof(argv[optind]);
-		//		std::cout << " Max duration of an internal state : " << s << std::endl;
-		//	break;
 			case 'h' : // show Help option
-				std::cout   << " Help : " << std::endl
-							<< "Usage : rosrun BP_experiment qlneural <-h (help) | options>" << std::endl
-							<< std::endl
-							<< "-a \t\t : learning rate of Qlearning (alpha)" << std::endl
-							<< "-g \t\t : discount factor of Qlearning (gamma)" << std::endl
-							<< "-t \t\t : temperature of Softmax decision rule (tau)" << std::endl
-							<< std::endl
-							<< "-d \t\t : duration of a run (in iterations ; 0 means no duration limit)" << std::endl
-							<< "-x \t\t : eXperience ID for logging files" << std::endl
-							<< std::endl
-					//		<< "-s \t\t : max duration of an internal state, in seconds. If no external perception ... " << std::endl
-						//	<< "-v \t\t : range of variation of space between blocks on the belt" << std::endl
-							<< std::endl
-							<< "-h \t\t : print this text and exit" << std::endl;
-							exit(EXIT_SUCCESS);
+				std::cout << " Help : " << std::endl
+				<< "Usage : rosrun experimentHandler navExpManager <-h (help) | options>" << std::endl
+				<< std::endl
+				<< "-d \t\t : duration of a run (in iterations ; 0 means no duration limit)" << std::endl
+				<< "-D \t\t : duration unit (\033[1mdec\033[21mision or \033[1mit\033[21meration)" << std::endl
+				<< "-x \t\t : eXperience ID for logging files" << std::endl
+				<< std::endl
+				<< "-h \t\t : print this text and exit" << std::endl;
+				exit(EXIT_SUCCESS);
 			break;
 			default :
-				std::cout   << "unknown option" << std::endl
-							<< "This node expects some arguments, use " << std::endl
-							<< "\t rosrun BP_experiment modelfree -h" << std::endl
-							<< "to get help." << std::endl;
-							exit(EXIT_FAILURE);
+				std::cout << "unknown option" << std::endl
+				<< "This node expects some arguments, use " << std::endl
+				<< "\t rosrun experimentHandler navExpManager -h" << std::endl
+				<< "to get help." << std::endl;
+				exit(EXIT_FAILURE);
 			break;
 		}
 	}
 	
 	srand( ((fixedSeed == -1) ? time(NULL) : fixedSeed) );
 
-	// Testing if seed use is OK :
-//	std::cout << rand() << " " << rand() << " " << rand() << " " << rand() << " " << rand() << " " << rand() << " " << rand() <<     " " << rand() << " " << rand() << " " << rand() << " " <<std::endl;
-
 	// Instantiate a NavExpManager Expert
-	NavExpManager manager(nh, x, d, D, L);
+	std::cout << "Starting Experiment \033[1m" << expe << "\033[21m for \033[1m" << dur << " " << D << "\033[21m using expfile \033[1m" << load << "\033[21m and seed \033[1m" << fixedSeed  << "\033[21m" << std::endl;
+	NavExpManager manager(nh, expe, dur, D, load);
 	// Start node
 	manager.run();
 
