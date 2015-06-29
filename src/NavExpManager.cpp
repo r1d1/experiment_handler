@@ -13,8 +13,8 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	// ROS specific : topics, node handler
 	nh_ = nh;
 	// state and action topics
-	state_sub = nh_.subscribe("statereward", 1, &NavExpManager::stateCallback, this);
-	action_sub = nh_.subscribe("habitualAction", 1, &NavExpManager::actionCallback, this);
+	state_sub = nh_.subscribe("state_publisher", 1, &NavExpManager::stateCallback, this);
+	action_sub = nh_.subscribe("actionToDo", 1, &NavExpManager::actionCallback, this);
 	//reward_pub = nh_.advertise<BP_experiment::Reward>(nodeDomain + "", 1);
 	reward_pub = nh_.advertise<std_msgs::Float32>("reward_received", 1);
 
@@ -61,10 +61,6 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 		//std::cout << "... done" << std::endl;
 		inFile.close();
 	}
-
-	// Initializing to 1st action may be a small bias :
-	//actionDone.source = "MF";
-	//actionDone.actionID = 0;
 
 	//------------------------------------------------------------------
 
@@ -178,7 +174,6 @@ NavExpManager::~NavExpManager()
 // When we get the state and reward information, we update the internal State/Reward information :
 void NavExpManager::stateCallback(const BP_experiment::StateReward msg)
 {
-	// New state management (to be used) :
 	std::cout << "State Callback" << std::endl;
 	robotState = msg;
 	robotStateChanged = true;
@@ -226,6 +221,18 @@ void NavExpManager::timerCallback(const ros::TimerEvent&)
 		}
 		else
 		{
+			StateAction currStall(robotState.stateID, "all");
+			std::map<StateAction, float>::iterator it_actionall = knownSAR.find(currStall);
+			if ( it_actionall != knownSAR.end() )
+			{
+				// If we find a reward for a state and any action, return it :
+				rewardToSend.data = (it_actionall->second);
+			}
+			else
+			{
+				// We don't know a specific reward, we send the all/all reward value :
+				rewardToSend.data = knownSAR.at(StateAction("all", "all"));
+			}
 //			knownSAR.at("all")// If S-A not found, return the default reward :
 		}
 		std::cout << rewardToSend << std::endl;
