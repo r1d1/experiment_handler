@@ -4,7 +4,7 @@
 /* Class : NavExpManager
  *
  * @author : Erwan Renaudo
- * @created : 05/01/2014
+ * @created : 26/06/2015
  * @description : This class is a NavExpManager controller that associate states and actions with Qlearning rule.
 
  */

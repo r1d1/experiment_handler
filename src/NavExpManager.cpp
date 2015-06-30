@@ -20,7 +20,7 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 
 	//------------------------------------------------------------------
 	robotState.stateID = "0";
-	robotState.stateType = "";
+	robotState.stateType = "Nav2";
 	robotState.contact = 0;
 	robotState.view = 0;
 	robotState.reward = 0.0;
