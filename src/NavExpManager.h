@@ -54,6 +54,9 @@ class NavExpManager
 		
 		// sending reward :
 		ros::Publisher reward_pub;
+		ros::Publisher learningMB_pub;
+		ros::Publisher learningMB2_pub;
+		ros::Publisher learningMF_pub;
 
 		// Actions decided and executed :
 		BP_experiment::StateReward robotState;

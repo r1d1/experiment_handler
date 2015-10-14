@@ -17,12 +17,14 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	action_sub = nh_.subscribe("actionToDo", 1, &NavExpManager::actionCallback, this);
 	//reward_pub = nh_.advertise<BP_experiment::Reward>(nodeDomain + "", 1);
 	reward_pub = nh_.advertise<std_msgs::Float32>("reward_received", 1);
+	// Control Learning :
+	learningMF_pub = nh_.advertise<std_msgs::Bool>("bp_experiment/learningMF", 1);
+	learningMB_pub = nh_.advertise<std_msgs::Bool>("bp_experiment/learningMB", 1);
+	learningMB2_pub = nh_.advertise<std_msgs::Bool>("bp_experiment/learningMB2", 1);
 
 	//------------------------------------------------------------------
 	robotState.stateID = "0";
 	robotState.stateType = "Nav2";
-	robotState.contact = 0;
-	robotState.view = 0;
 	robotState.reward = 0.0;
 	robotStateChanged = false;
 	previousState = robotState;
@@ -41,22 +43,41 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 		//std::string line;
 		std::string state;
 		std::string action;
+		std::string taskDefType;
+		float xpos, ypos, dist;
 		float reward;
-		while (inFile >> state >> action >> reward)
+		inFile >> taskDefType;
+		if( !taskDefType.compare("state") )
 		{
-			if( !state.compare("all") )
+			// Read the file
+			while (inFile >> state >> action >> reward)
 			{
-				std::cout << "Default value for all states !" << std::endl;
+				if( !state.compare("all") )
+				{
+					std::cout << "Default value for all states !" << std::endl;
+				}
+				if( !action.compare("all") ){ std::cout << "Default value for all actions !" << std::endl; }
+				StateAction stac(state, action);
+				knownSAR.insert(std::pair<StateAction, float>(stac, reward));
+				std::cout << state << " - " << action << " - " << reward << std::endl << "--------------------" << std::endl;
 			}
-			if( !action.compare("all") ){ std::cout << "Default value for all actions !" << std::endl; }
-			//inFile >> state >> action >> reward;
-			//line >> state >> action >> reward
-			//std::cout << line << std::endl;
-			StateAction stac(state, action);
-			//ActionReward acrew(action, reward);
-			//knownSAR.insert(std::pair<std::string, ActionReward>(state, acrew));
-			knownSAR.insert(std::pair<StateAction, float>(stac, reward));
-			std::cout << state << " - " << action << " - " << reward << std::endl << "--------------------" << std::endl;
+		}
+		else
+		{
+			if( !taskDefType.compare("target") )
+			{
+				// Read the file
+				while (inFile >> xpos >> ypos >> dist >> reward)
+				{
+//					StateAction stac(state, action);
+					std::cout << xpos << ", " << ypos << " - " << dist << " - " << reward << std::endl << "--------------------" << std::endl;
+				}
+			}
+			else
+			{
+				ROS_ERROR("File can not be understood, exiting ...");
+				exit(EXIT_FAILURE);
+			}
 		}
 		//std::cout << "... done" << std::endl;
 		inFile.close();
@@ -72,109 +93,15 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	nodeStartTime = ros::Time::now();
 
 	doWeRun = true;
-
-	//------------------------------------------------------------------
-	// Logs :
-	//------------------------------------------------------------------
-	// Version conversion in string
-	/*std::ostringstream oss;
-	oss << VERSION;
-	std::string version = oss.str();
-
-	// experience ID conversion in string
-	oss.str(std::string());
-	oss << experience;
-	std::string exp_id = oss.str();
-
-	// Path for logging
-	std::string path = std::string("logs/modelfree/");
-	std::string fileprefix = (path + "v" + version + "_exp" + exp_id + "_MF_");
-	*/
-	//------------------------------------------------------------------
-	// File opening
-	/*actionactivity_log.open(( fileprefix + std::string("actionactivity_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-	actionprob_log.open(( fileprefix + std::string("actionprob_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-
-	for(int act = 0 ; act < outputSize ; act++)
-	{
-		oss.str(std::string());
-		oss << act;
-		Weights_log[act].open( ( fileprefix + std::string("weights_act") + oss.str() + std::string("_log.dat") ).c_str(), std::ios::out|std::ios::trunc);
-	// ---------------------------------------------------------------------------------------------------------------------------
-
-	biasWeights_log.open(( fileprefix + std::string("biasWeights_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-
-	stateevolution.open(( fileprefix + std::string("stateevolution_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-	reward_log.open(( fileprefix + std::string("reward_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-
-	deltaWeights_log.open(( fileprefix + std::string("deltaWeights_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-
-	metainfo.open(( fileprefix + std::string("metainfo_log.dat")).c_str(), std::ios::out|std::ios::trunc);
-
-	if(!deltaWeights_log | !biasWeights_log | !metainfo |
-	!stateevolution | !reward_log | !actionactivity_log | !actionprob_log)  // si l'ouverture a plante
-	{
-		ROS_ERROR("log file not opening, abort ...");
-		exit(EXIT_FAILURE);
-   	}
-
-	metainfo << "VERSION " << VERSION << std::endl
-		<< "TEMPERATURE " << softmax_temperature << std::endl
-		<< "TIMEWINDOW " << TIMEWINDOW << std::endl
-		<< "ACTIONSTATESIZE " << ACTIONSTATESIZE << std::endl
-		<< "OUTPUTSIZE " << outputSize << std::endl
-		<< "GAMMA " << discount_rate << std::endl
-		<< "ALPHA " << learning_rate << std::endl
-		<< "DNTH_REWARD " << DNTH_REWARD << std::endl
-		<< "CAM_REWARD " << CAM_REWARD << std::endl
-		<< "ARM_REWARD " << ARM_REWARD << std::endl
-		<< "SUCCESS_RWD " << SUCCESS_RWD << std::endl
-		<< "BELT_LENGTH " << BELT_LENGTH << std::endl
-		<< "NODECONTROLRATE " << NODECONTROLRATE << std::endl
-		<< "BELT_SPEED " << BELT_SPEED << std::endl
-		<< "PARAM_BLOCK_SPACE " << PARAM_BLOCK_SPACE << std::endl
-		<< "VARIANCE_SPACE " << VARIANCE_SPACE << std::endl;
-
-		std::cout << "MF CTOR done. Ready." <<std::endl;
-		doWeRun = true;
-		// We sleep to give time to subscription to happen :
-		sleep(1);
-		std::cout << "connected to : " << state_sub.getNumPublishers()<< std::endl;
-		// If no sub, we wait :
-		while(!state_sub.getNumPublishers()){ sleep(1); }
-		// Sending first action to start getting feedback :
-		actions_pub.publish(actionDone);
-	*/
 }
 
-NavExpManager::~NavExpManager()
-{
-	/*metainfo << "DURATION " << actioncount << std::endl
-		 << "DURATION_REQ " << durationOfExp << std::endl;
-	//------------------------------------------------------------------
-	// Closing log file :
-
-	actionactivity_log.close();
-	actionprob_log.close();
-
-	for(int act = 0 ; act < outputSize ; act++){ Weights_log[act].close(); }
-
-	biasWeights_log.close();
-
-	stateevolution.close();
-	reward_log.close();
-
-	deltaWeights_log.close();
-
-	metainfo.close();*/
-	//------------------------------------------------------------------
-}
+NavExpManager::~NavExpManager(){}
 
 //==========================================================================
 // When we get the state and reward information, we update the internal State/Reward information :
 void NavExpManager::stateCallback(const BP_experiment::StateReward msg)
 {
-	std::cout << "State Callback" << std::endl;
+	std::cout << "State Callback @ " << ros::Time::now() << " with msg @ " << msg << std::endl;
 	robotState = msg;
 	robotStateChanged = true;
 }
