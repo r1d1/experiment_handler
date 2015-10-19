@@ -8,6 +8,8 @@
 import rospy
 import roslib
 import sys
+import math
+import tf
 import numpy as np
 roslib.load_manifest("lowlevel_actions") # In order to send goals, we need to use a package created by rosbuild and not catkin # do we ?
 from optparse import OptionParser
@@ -24,6 +26,7 @@ class NavExpManager:
 		self.statereward_sub = rospy.Subscriber("statereward", StateReward, self.statereward_cb)
 		self.state_sub = rospy.Subscriber("statealone", State, self.state_cb)
 		self.action_sub = rospy.Subscriber("actionToDo", Actions, self.action_cb)
+		self.pose_sub = rospy.Subscriber("robot_pose_ekf/odom_combined", PoseWithCovarianceStamped, self.pose_cb)
 
 		self.reward_pub = rospy.Publisher("rewardalone", Float32)
 		self.learningMF_pub = rospy.Publisher("learningMF", Bool)
@@ -35,7 +38,12 @@ class NavExpManager:
 		self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_cb) 
 		# ----------------------------------
 		self.goalTF = "/map"	
+		self.goal = MoveBaseGoal()
+		self.listener = tf.TransformListener()
+		self.backToInit = True
 		# ----------------------------------
+		self.robotpose = [0.0, 0.0]
+
 		self.robotState = State()
 		self.robotState.stateID = "0"
 		self.robotState.stateType = "Nav2"
@@ -111,6 +119,18 @@ class NavExpManager:
 		self.actionChanged = True
 		#print "A Callback"
 	
+	def pose_cb(self, msg):
+	#	print "pose,",msg
+		try:
+#			(position, quaternion) = self.listener.lookupTransform(self.goalTF, msg.header.frame_id, rospy.Time(0))
+			(position, quaternion) = self.listener.lookupTransform(self.goalTF, "/base_link", rospy.Time(0))
+		#	print position, quaternion
+			self.robotpose[0] = position[0]
+			self.robotpose[1] = position[1]
+		except (tf.LookupException,tf.ConnectivityException,tf.ExtrapolationException) as e:
+			rospy.loginfo("waiting for transform, %s",e)
+
+
 	def timer_cb(self, msg):
 		self.timecount += 1
 		# State machine :
@@ -127,6 +147,7 @@ class NavExpManager:
 			# Exp finished, quit.
 			
 	def monitor(self):
+#		print "Monitoring"
 		if self.robotStateChanged and self.actionChanged:
 			print "Was in", self.robotStateReward.stateID, "and did", self.actionDone.actionID
 			td = zip(*self.taskDescription)
@@ -147,9 +168,11 @@ class NavExpManager:
 					action = actionIndexes
 			# Find the line to use to grab reward information:
 			lineToUse = list(set(state).intersection(action))
+			print "Task desc line:",lineToUse
 			# If state and action are disjoint, use "all"' condition:
 			if not lineToUse:
-				lineToUse[0] = 0
+				lineToUse = [0]
+				#lineToUse[0] = 0
 
 			# Grab reward value:
 			rewardToSend=float(td[2][lineToUse[0]])
@@ -160,7 +183,7 @@ class NavExpManager:
 			rwd.data = rewardToSend
 			self.reward_pub.publish(rwd)
 	
-			print "reward:", rewardToSend
+			print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",self.rwdAcc/self.rwdObj,"%)"
 	
 			self.robotStateChanged = False
 			self.actionChanged = False
@@ -168,46 +191,73 @@ class NavExpManager:
 			# Update expStatus:
 			if rewardToSend > 0.0:
 				self.expStatus = "reset"
+				self.backToInit = True
 			elif self.rwdAcc >= self.rwdObj:
 				self.expStatus = "end"
 
 	def reset(self):
-		# reset exp: pause learning and control, send goal to base, wait until it's reached
 		learningStatus = Bool()
-		learningStatus.data = False
-		self.learningMF_pub.publish(learningStatus)
-		self.learningMB_pub.publish(learningStatus)
-		self.learningMB2_pub.publish(learningStatus)
-	
 		controlStatus = Bool()
-		controlStatus.data = False
-		self.control_pub.publish(controlStatus)
+		# reset exp: pause learning and control, send goal to base, wait until it's reached
+		if self.backToInit:
+			learningStatus.data = False
+			self.learningMF_pub.publish(learningStatus)
+			self.learningMB_pub.publish(learningStatus)
+			self.learningMB2_pub.publish(learningStatus)
+			controlStatus.data = False
+			self.control_pub.publish(controlStatus)
 
-		randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
-		print "Rand pose:", randpose
-		# Action lib goal
-		print "AC goal"
-		goal = MoveBaseGoal()
-		goal.target_pose.header.frame_id = self.goalTF
-		goal.target_pose.header.stamp = rospy.Time.now()
-		goal.target_pose.pose.position.x = float(randpose[0]) 
-		goal.target_pose.pose.position.y = float(randpose[0]) 
-#		goal.target_pose.pose.position.z = target[2]
-#		goal.target_pose.pose.orientation.x = target[3]
-#		goal.target_pose.pose.orientation.y = target[4]
-#		goal.target_pose.pose.orientation.z = target[5]
-#		goal.target_pose.pose.orientation.w = target[6]
-		#print goal
-		self.client.send_goal(goal, feedback_cb=self.goalfeedback())
-		print "Waiting ..."
-		self.client.wait_for_result(rospy.Duration(10.0))
-		# back to monitoring
-		print "Monitoring"
-		# Update expStatus:
-		if self.rwdAcc >= self.rwdObj:
-			self.expStatus = "end"
+			randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
+			# Compute angle:
+			xr = self.robotpose[0]
+			yr = self.robotpose[1]
+			xg = float(randpose[0]) 
+			yg = float(randpose[1])
+			dx = xg - xr
+			dy = yg - yr
+			orientcos = dx / math.sqrt(dx * dx + dy * dy)
+			orientsin = dy / math.sqrt(dx * dx + dy * dy)
+			print "Rand pose:", randpose, "orient:", 180.0 * math.acos(orientcos) / 3.14159265359 , 180.0 * math.asin(orientsin) / 3.14159265359 
+			# Action lib goal
+			print "AC goal"
+			self.goal = MoveBaseGoal()
+			self.goal.target_pose.header.frame_id = self.goalTF
+			self.goal.target_pose.header.stamp = rospy.Time.now()
+			self.goal.target_pose.pose.position.x = float(randpose[0]) 
+			self.goal.target_pose.pose.position.y = float(randpose[1]) 
+			self.goal.target_pose.pose.orientation.x = 0.0 
+			self.goal.target_pose.pose.orientation.y = 0.0
+			self.goal.target_pose.pose.orientation.z = 1.0
+			self.goal.target_pose.pose.orientation.w = 1.0
+	
+#			self.client.send_goal(self.goal)
+			print "Waiting ..."
+			print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+			self.client.send_goal_and_wait(self.goal)
+			print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+			self.backToInit = False
 		else:
-			self.expStatus = "monitor"
+			#self.client.wait_for_result(rospy.Duration(0.5))
+			#print self.client.get_result()
+			# Update expStatus:
+			dx = self.goal.target_pose.pose.position.x - self.robotpose[0] 
+			dy = self.goal.target_pose.pose.position.y - self.robotpose[1]
+			dist = math.sqrt(dx*dx + dy*dy)
+			print dist, self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+
+			if dist < 0.22:
+				print "Back to monitoring ..."
+				self.expStatus = "monitor"
+				self.backToInit = True
+				learningStatus.data = True
+				self.learningMF_pub.publish(learningStatus)
+				self.learningMB_pub.publish(learningStatus)
+				self.learningMB2_pub.publish(learningStatus)
+				controlStatus.data = True
+				self.control_pub.publish(controlStatus)
+			elif self.rwdAcc >= self.rwdObj:
+				print "End of Experiment !"
+				self.expStatus = "end"
 		
 	def goalfeedback(self, fb):
 		print fb
