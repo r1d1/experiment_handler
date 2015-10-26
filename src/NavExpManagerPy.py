@@ -26,6 +26,7 @@ class NavExpManager:
 		self.statereward_sub = rospy.Subscriber("statereward", StateReward, self.statereward_cb)
 		self.state_sub = rospy.Subscriber("statealone", State, self.state_cb)
 		self.action_sub = rospy.Subscriber("actionToDo", Actions, self.action_cb)
+		self.actionFinished_sub = rospy.Subscriber("actionFinished", Bool, self.actionFinished_cb)
 		self.pose_sub = rospy.Subscriber("robot_pose_ekf/odom_combined", PoseWithCovarianceStamped, self.pose_cb)
 
 		self.reward_pub = rospy.Publisher("rewardalone", Float32)
@@ -55,6 +56,7 @@ class NavExpManager:
 
 		self.robotStateChanged = False
 		self.actionChanged = False
+		self.actionHasFinished = False
 		self.expStatus = "monitor"
 		# ----------------------------------
 		self.rwdObj = rwdObj
@@ -118,6 +120,10 @@ class NavExpManager:
 		self.actionDone = msg
 		self.actionChanged = True
 		#print "A Callback"
+	
+	def actionFinished_cb(self, msg):
+		print "AF Callback"
+		self.actionHasFinished = msg.data
 	
 	def pose_cb(self, msg):
 	#	print "pose,",msg
@@ -199,38 +205,44 @@ class NavExpManager:
 		# reset exp: pause learning and control, send goal to base, wait until it's reached
 		print rospy.Time.now(), rospy.get_time()
 		if self.backToInit:
-			self.pauseSystem(True)
+			
+			if self.actionHasFinished:
+				self.pauseSystem(True)
 
-			randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
-			# Compute angle:
-			xr = self.robotpose[0]
-			yr = self.robotpose[1]
-			xg = float(randpose[0]) 
-			yg = float(randpose[1])
-			dx = xg - xr
-			dy = yg - yr
-			orientcos = dx / math.sqrt(dx * dx + dy * dy)
-			orientsin = dy / math.sqrt(dx * dx + dy * dy)
-			print "Rand pose:", randpose, "orient:", 180.0 * math.acos(orientcos) / 3.14159265359 , 180.0 * math.asin(orientsin) / 3.14159265359, 180.0 * math.atan2(dy, dx) / 3.14159265359 
-			goalAngle = math.atan2(dy, dx)
-			# Action lib goal
-			print "AC goal"
-			self.goal = MoveBaseGoal()
-			self.goal.target_pose.header.frame_id = self.goalTF
-			self.goal.target_pose.header.stamp = rospy.Time.now()
-			self.goal.target_pose.pose.position.x = float(randpose[0]) 
-			self.goal.target_pose.pose.position.y = float(randpose[1]) 
-			self.goal.target_pose.pose.orientation.x = 0.0 
-			self.goal.target_pose.pose.orientation.y = 0.0
-			self.goal.target_pose.pose.orientation.z = math.sin(goalAngle / 2.0)
-			self.goal.target_pose.pose.orientation.w = math.cos(goalAngle / 2.0)
-	
-#			self.client.send_goal(self.goal)
-			print "Waiting ..."
-			#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
-			self.client.send_goal_and_wait(self.goal)
-			print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
-			self.backToInit = False
+				randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
+				# Compute angle:
+				xr = self.robotpose[0]
+				yr = self.robotpose[1]
+				xg = float(randpose[0]) 
+				yg = float(randpose[1])
+				dx = xg - xr
+				dy = yg - yr
+				orientcos = dx / math.sqrt(dx * dx + dy * dy)
+				orientsin = dy / math.sqrt(dx * dx + dy * dy)
+				print "Rand pose:", randpose, "orient:", 180.0 * math.acos(orientcos) / 3.14159265359 , 180.0 * math.asin(orientsin) / 3.14159265359, 180.0 * math.atan2(dy, dx) / 3.14159265359 
+				goalAngle = math.atan2(dy, dx)
+				# Action lib goal
+				print "AC goal"
+				self.goal = MoveBaseGoal()
+				self.goal.target_pose.header.frame_id = self.goalTF
+				self.goal.target_pose.header.stamp = rospy.Time.now()
+				self.goal.target_pose.pose.position.x = float(randpose[0]) 
+				self.goal.target_pose.pose.position.y = float(randpose[1]) 
+				self.goal.target_pose.pose.orientation.x = 0.0 
+				self.goal.target_pose.pose.orientation.y = 0.0
+				self.goal.target_pose.pose.orientation.z = math.sin(goalAngle / 2.0)
+				self.goal.target_pose.pose.orientation.w = math.cos(goalAngle / 2.0)
+		
+	#			self.client.send_goal(self.goal)
+				print "Waiting ..."
+				#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+				self.client.send_goal_and_wait(self.goal)
+				print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+				self.backToInit = False
+				self.actionHasFinished = False
+			else:
+				print "Waiting for action to finish ..."
+				
 		else:
 			#self.client.wait_for_result(rospy.Duration(0.5))
 			#print self.client.get_result()
@@ -254,6 +266,7 @@ class NavExpManager:
 				while not (keypressed == " "):
 					keypressed = raw_input()
 
+				print "Ok"
 				self.pauseSystem(False)
 			else:
 				print "Other status:", goalStatus
