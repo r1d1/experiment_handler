@@ -139,6 +139,7 @@ class NavExpManager:
 
 	def timer_cb(self, msg):
 		self.timecount += 1
+		print "-",self.actionHasFinished
 		# State machine :
 		# monitor, reset, end
 		# monitor : experiment is running, we check the states and actions of the robot to provide reward
@@ -153,7 +154,8 @@ class NavExpManager:
 			# Exp finished, quit.
 			
 	def monitor(self):
-#		print "Monitoring"
+		print "Monitoring"
+		self.actionHasFinished = False
 		if self.robotStateChanged and self.actionChanged:
 			print "Was in", self.robotStateReward.stateID, "and did", self.actionDone.actionID
 			td = zip(*self.taskDescription)
@@ -189,10 +191,11 @@ class NavExpManager:
 			rwd.data = rewardToSend
 			self.reward_pub.publish(rwd)
 	
-			print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",self.rwdAcc/self.rwdObj,"%)"
+			print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
 	
 			self.robotStateChanged = False
 			self.actionChanged = False
+			self.actionFinished = False
 			
 			# Update expStatus:
 			if rewardToSend > 0.0:
@@ -202,11 +205,13 @@ class NavExpManager:
 				self.expStatus = "end"
 
 	def reset(self):
+		print "Reset"
 		# reset exp: pause learning and control, send goal to base, wait until it's reached
 		print rospy.Time.now(), rospy.get_time()
 		if self.backToInit:
 			
 			if self.actionHasFinished:
+				print "Tata yoyo",self.actionHasFinished
 				self.pauseSystem(True)
 
 				randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
@@ -242,6 +247,7 @@ class NavExpManager:
 				self.actionHasFinished = False
 			else:
 				print "Waiting for action to finish ..."
+			
 				
 		else:
 			#self.client.wait_for_result(rospy.Duration(0.5))
@@ -271,6 +277,7 @@ class NavExpManager:
 			else:
 				print "Other status:", goalStatus
 
+		self.actionHasFinished = False
 		
 	def goalfeedback(self, fb):
 		print fb
