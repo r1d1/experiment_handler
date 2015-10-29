@@ -1,0 +1,4 @@
+#!/bin/bash
+
+rosrun experimentHandler NavExpManagerPy.py -f navGoal.txt -p navInitPoses_sima.txt -r 5.0 actionToDo:=/bp_experiment/metacontroller/decidedAction
+#rosrun experimentHandler NavExpManagerPy.py -f navGoal.txt -p navInitPoses.txt -r 5.0 actionToDo:=/bp_experiment/habitualAction
