@@ -5,6 +5,7 @@
 
 '''
 
+import os
 import rospy
 import roslib
 import sys
@@ -56,6 +57,7 @@ class NavExpManager:
 		self.robotStartStateRwd = self.robotStateReward
 
 		self.robotStateChanged = False
+		self.stateChanged = False
 		self.actionChanged = False
 		self.actionHasFinished = False
 		self.expStatus = "monitor"
@@ -67,6 +69,7 @@ class NavExpManager:
 		self.actioncount = 0
 		self.rewardcount = 0
 
+		self.taskType= ""
 		self.taskDescription= []
 		self.initialPoses= []
 		# ----------------------------------
@@ -83,15 +86,17 @@ class NavExpManager:
 		for i in range(len(poseTxt)):
 			poseTxt[i] = poseTxt[i].strip('\n')
 		poseFile.close()
+		for line in poseTxt:
+			self.initialPoses.append(line.split())
 	 	# Process descriptions	
-		if taskTxt[0] == "state":
+		self.taskType = taskTxt[0]
+		if self.taskType == "state":
 			for line in taskTxt[1:]:
 				self.taskDescription.append(line.split())
-
-			for line in poseTxt:
-				self.initialPoses.append(line.split())
-	
-		elif taskTxt[0] == "target":
+		elif self.taskType == "goal":
+			for line in taskTxt[1:]:
+				self.taskDescription.append(line.split())
+		elif self.taskType == "target":
 			for line in taskTxt[1:]:
 				self.taskDescription.append(line.split())
 		else:
@@ -103,6 +108,7 @@ class NavExpManager:
 		# Start Exp :
 		print self.initialPoses
 		print self.taskDescription
+		print self.taskType
 		# ----------------------------------
 
 	def statereward_cb(self, msg):
@@ -112,9 +118,9 @@ class NavExpManager:
 		print "SR Callback", self.robotStateReward.stateID, "(", self.robotStateReward.reward,")"
 
 	def state_cb(self, msg):
-	#	print "S Callback"
 		self.robotState = msg
-#		self.stateChanged = True
+		self.stateChanged = True
+		print "S Callback"
 	
 	def action_cb(self, msg):
 		self.actionDone = msg
@@ -156,36 +162,64 @@ class NavExpManager:
 	def monitor(self):
 		#if self.robotStateChanged and self.actionChanged:
 		# When we got the action, we take the start state and compute reward
-		if self.actionChanged:
-			# Grab reward value:
-			rewardToSend = self.computeReward(self.robotStartStateRwd, self.actionDone)
-			self.rwdAcc += rewardToSend
+	#	print self.taskType
+		rewardToSend = 0.0
+		if self.taskType == "state":
+			if self.actionChanged:
+				# Grab reward value:
+				if self.taskType == "state":
+					rewardToSend = self.computeReward(self.robotStartStateRwd, self.actionDone)
+					self.rwdAcc += rewardToSend
+				else:
+					print "Error in task type !"
+					exit()
 
-			# publish reward message:
-			rwd = Float32()
-			rwd.data = rewardToSend
-			self.reward_pub.publish(rwd)
-	
-			print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
-	
-			#self.robotStateChanged = False
-			self.actionChanged = False
-			self.actionFinished = False
-			
-			# Update expStatus:
-			if rewardToSend > 0.0:
-				self.expStatus = "reset"
-				self.backToInit = True
-			elif self.rwdAcc >= self.rwdObj:
-				self.expStatus = "end"
-		else:
-			if self.actionHasFinished:
-				self.actionHasFinished = False
+				# publish reward message:
+				rwd = Float32()
+				rwd.data = rewardToSend
+				self.reward_pub.publish(rwd)
+		
+				print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
+		
+				#self.robotStateChanged = False
+				self.actionChanged = False
+				self.actionFinished = False
+				
+			else:
+				if self.actionHasFinished:
+					self.actionHasFinished = False
+
+
+		elif self.taskType == "goal":
+			if self.stateChanged:
+				print "GG"
+				rewardToSend = self.computeReward(self.robotState, None)
+				self.rwdAcc += rewardToSend
+				
+				# publish reward message:
+				rwd = Float32()
+				rwd.data = rewardToSend
+				self.reward_pub.publish(rwd)
+		
+				print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
+		
+				#self.robotStateChanged = False
+				self.stateChanged = False
+				self.actionChanged = False
+				self.actionFinished = False
+		
+		# Update expStatus:
+		if rewardToSend > 0.0:
+			self.expStatus = "reset"
+			self.backToInit = True
+			print "Reset"
+		elif self.rwdAcc >= self.rwdObj:
+			self.expStatus = "end"
 
 	def reset(self):
-		print "Reset"
+		#print "Reset"
 		# reset exp: pause learning and control, send goal to base, wait until it's reached
-		print rospy.Time.now(), rospy.get_time()
+		#print rospy.Time.now(), rospy.get_time()
 		if self.backToInit:
 			
 			if self.actionHasFinished:
@@ -263,31 +297,41 @@ class NavExpManager:
 		#if msg.data:
 		#	self.robotStartStateRwd = self.robotStateReward
 		#print "Was in", self.robotStateReward.stateID, "and did", self.actionDone.actionID
-		print "Was in", st.stateID, "and did", act.actionID
-		td = zip(*self.taskDescription)
-		# Check which state/action we did compared to task description:
-		stateIndexes = [i for i, x in enumerate(td[0]) if x == st.stateID]
-		defstateIndexes = [i for i, x in enumerate(td[0]) if x == "all"]
-		actionIndexes = [i for i, x in enumerate(td[1]) if (x == str(act.actionID) or x == "all")]
-		defactionIndexes = [i for i, x in enumerate(td[1]) if x == "all"]
-		
-		if not stateIndexes:
-			state = defstateIndexes
-			action = defactionIndexes 
-		else:
-			state = stateIndexes
-			if not actionIndexes:
+		rwd = 0
+		if self.taskType == "state":
+			print "Was in", st.stateID, "and did", act.actionID
+			td = zip(*self.taskDescription)
+			# Check which state/action we did compared to task description:
+			stateIndexes = [i for i, x in enumerate(td[0]) if x == st.stateID]
+			defstateIndexes = [i for i, x in enumerate(td[0]) if x == "all"]
+			actionIndexes = [i for i, x in enumerate(td[1]) if (x == str(act.actionID) or x == "all")]
+			defactionIndexes = [i for i, x in enumerate(td[1]) if x == "all"]
+			
+			if not stateIndexes:
+				state = defstateIndexes
 				action = defactionIndexes 
 			else:
-				action = actionIndexes
-		# Find the line to use to grab reward information:
-		lineToUse = list(set(state).intersection(action))
-		print "Task desc line:",lineToUse
-		# If state and action are disjoint, use "all"' condition:
-		if not lineToUse:
-			lineToUse = [0]
-			#lineToUse[0] = 0
-		return float(td[2][lineToUse[0]])
+				state = stateIndexes
+				if not actionIndexes:
+					action = defactionIndexes 
+				else:
+					action = actionIndexes
+			# Find the line to use to grab reward information:
+			lineToUse = list(set(state).intersection(action))
+			print "Task desc line:",lineToUse
+			# If state and action are disjoint, use "all"' condition:
+			if not lineToUse:
+				lineToUse = [0]
+				#lineToUse[0] = 0
+			rwd=float(td[2][lineToUse[0]])
+		elif self.taskType == "goal":
+			print "I'm in ", st.stateID
+			td = zip(*self.taskDescription)
+			for i, x in enumerate(td[0]):
+				stateIndexes = (x == st.stateID)
+			if stateIndexes:
+				rwd=float(self.taskDescription[0][1])
+		return rwd 
 
 	def pauseSystem(self, pausing):
 		learningStatus = Bool()
@@ -304,7 +348,7 @@ class NavExpManager:
 
 	def finish(self):
 		print "Exp done"
-		print '\a', '\e'
+		os.system("aplay ~/expData/r2d2.wav")
 		rospy.signal_shutdown("Exp ending !")
 
 if __name__ == "__main__":
