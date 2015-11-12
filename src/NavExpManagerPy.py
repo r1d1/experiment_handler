@@ -120,17 +120,17 @@ class NavExpManager:
 	def state_cb(self, msg):
 		self.robotState = msg
 		self.stateChanged = True
-		print "S Callback"
+#		print "S Callback"
 	
 	def action_cb(self, msg):
 		self.actionDone = msg
 		self.actionChanged = True
 		self.robotStartStateRwd = self.robotStateReward
-		print "A Callback", self.actionDone.actionID
+#		print "A Callback", self.actionDone.actionID
 	
 	def actionFinished_cb(self, msg):
 		self.actionHasFinished = msg.data
-		print "AF Callback", self.actionHasFinished
+#		print "AF Callback", self.actionHasFinished
 	
 	def pose_cb(self, msg):
 	#	print "pose,",msg
@@ -207,6 +207,9 @@ class NavExpManager:
 				self.stateChanged = False
 				self.actionChanged = False
 				self.actionFinished = False
+			else:
+				if self.actionHasFinished:
+					self.actionHasFinished = False
 		
 		# Update expStatus:
 		if rewardToSend > 0.0:
