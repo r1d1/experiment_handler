@@ -227,7 +227,6 @@ class NavExpManager:
 			
 			if self.actionHasFinished:
 				print "Action has finished:",self.actionHasFinished," with reward, sending initial position."
-				self.pauseSystem(True)
 
 				randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
 				# Compute angle:
@@ -256,6 +255,8 @@ class NavExpManager:
 	#			self.client.send_goal(self.goal)
 				print "Waiting ..."
 				#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+				self.pauseSystem(True)
+
 				self.client.send_goal_and_wait(self.goal)
 				print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
 				self.backToInit = False
