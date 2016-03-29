@@ -11,7 +11,7 @@ find_package(catkin REQUIRED COMPONENTS roscpp geometry_msgs sensor_msgs laser_g
 ################################################
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-generate_messages(DEPENDENCIES sensor_msgs geometry_msgs)
+#generate_messages(DEPENDENCIES sensor_msgs geometry_msgs)
 
 ###########
 ## Build ##

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 '''
-	NavExpManagerPy : python version of navigation experiment manager in order to go over catkin/rosbuild impatibilities ...
+	NavExpManagerPy2 : python version of navigation experiment manager in order to go over catkin/rosbuild impatibilities ...
 
 '''
 
@@ -21,7 +21,7 @@ from BP_experiment.msg import StateReward, State, Actions, CommandSignal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Point, PoseWithCovarianceStamped
 
-class NavExpManager:
+class NavExpManager2:
 	def __init__(self, taskfile, rwdObj, pose):
 		print "CTOR"
 		self.statereward_sub = rospy.Subscriber("statereward", StateReward, self.statereward_cb)
@@ -61,7 +61,9 @@ class NavExpManager:
 		self.stateChanged = False
 		self.actionChanged = False
 		self.actionHasFinished = False
-		self.expStatus = "monitor"
+		#self.expStatus = "monitor"
+		self.expState = 0
+		self.expSubState = 0
 		# ----------------------------------
 		self.rwdObj = rwdObj
 		self.rwdAcc = 0.0
@@ -73,6 +75,8 @@ class NavExpManager:
 		self.taskType= ""
 		self.taskDescription= []
 		self.initialPoses= []
+		self.initOrdPoses= []
+		self.initRandPoses= []
 		# ----------------------------------
 		self.taskfile = taskfile
 		taskFile = open(self.taskfile, 'r+')
@@ -89,6 +93,17 @@ class NavExpManager:
 		poseFile.close()
 		for line in poseTxt:
 			self.initialPoses.append(line.split())
+			for n in np.arange(5):
+				self.initOrdPoses.append(self.initialPoses[-1])
+
+		#print self.initOrdPoses
+		while len(self.initOrdPoses)>0:
+			self.initRandPoses.append(self.initOrdPoses.pop(np.random.randint(0,high=len(self.initOrdPoses))))
+		print self.initRandPoses
+		#print self.initOrdPoses
+			
+			
+			
 	 	# Process descriptions	
 		self.taskType = taskTxt[0]
 		if self.taskType == "state":
@@ -107,7 +122,7 @@ class NavExpManager:
 		self.client.wait_for_server()
 		# ----------------------------------
 		# Start Exp :
-		print self.initialPoses
+		#print self.initialPoses
 		print self.taskDescription
 		print self.taskType
 		# ----------------------------------
@@ -131,7 +146,7 @@ class NavExpManager:
 	
 	def actionFinished_cb(self, msg):
 		self.actionHasFinished = msg.data
-#		print "AF Callback", self.actionHasFinished
+		print "AcF'd Callback", self.actionHasFinished
 	
 	def pose_cb(self, msg):
 	#	print "pose,",msg
@@ -152,11 +167,20 @@ class NavExpManager:
 		# monitor : experiment is running, we check the states and actions of the robot to provide reward
 		# reset : goal has been reached, we stop learning and controller speed command and send a goal to drive the robot to an initial position. When at position, reactivate learning and control, send "action finished".
 		# #end : enought reward accumulated, send shutdown signals to nodes, drive robot back to zero, emit sound ?
-		if self.expStatus == "monitor":
-			self.monitor()
-		elif self.expStatus == "reset":
+		#if self.expStatus == "monitor":
+		if self.expState == 0:
+			r = self.monitor()
+			if r > 0.0:
+				self.expState = 1 # reset
+				print "Reset"
+			elif self.rwdAcc >= self.rwdObj:
+				# end
+				self.expState = 2
+			else:
+				self.expState = 0
+		elif self.expState == 1:
 			self.reset()
-		elif self.expStatus == "end":
+		elif self.expState == 2:
 			self.finish()
 			# Exp finished, quit.
 			
@@ -165,33 +189,7 @@ class NavExpManager:
 		# When we got the action, we take the start state and compute reward
 	#	print self.taskType
 		rewardToSend = 0.0
-		if self.taskType == "state":
-			if self.actionChanged:
-				# Grab reward value:
-				if self.taskType == "state":
-					rewardToSend = self.computeReward(self.robotStartStateRwd, self.actionDone)
-					self.rwdAcc += rewardToSend
-				else:
-					print "Error in task type !"
-					exit()
-
-				# publish reward message:
-				rwd = Float32()
-				rwd.data = rewardToSend
-				self.reward_pub.publish(rwd)
-		
-				print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
-		
-				#self.robotStateChanged = False
-				self.actionChanged = False
-				self.actionFinished = False
-				
-			else:
-				if self.actionHasFinished:
-					self.actionHasFinished = False
-
-
-		elif self.taskType == "goal":
+		if self.taskType == "goal":
 			if self.stateChanged:
 				print "GG"
 				rewardToSend = self.computeReward(self.robotState, None)
@@ -208,84 +206,89 @@ class NavExpManager:
 				self.stateChanged = False
 				self.actionChanged = False
 				self.actionFinished = False
-			else:
-				if self.actionHasFinished:
-					self.actionHasFinished = False
-		
-		# Update expStatus:
-		if rewardToSend > 0.0:
-			self.expStatus = "reset"
-			self.backToInit = True
-			self.askStopPlanning = True
-			print "Reset"
-		elif self.rwdAcc >= self.rwdObj:
-			self.expStatus = "end"
+			#else:
+			#	if self.actionHasFinished:
+			#		self.actionHasFinished = False
+		else :
+			print "Error in task type !"
+			exit()
+		return rewardToSend
 
 	def reset(self):
 		#print "Reset"
 		# reset exp: pause learning and control, send goal to base, wait until it's reached
 		#print rospy.Time.now(), rospy.get_time()
-		if self.backToInit:
-			
+		#if self.backToInit:
+		if self.expSubState == 0:
+			# sending planning and deciding inhibition
+			planDecide = CommandSignal()
+			planDecide.decide = False
+			self.plde_pub.publish(planDecide)
+			#keypressed = ""
+			#while not (keypressed == " "):
+			#	keypressed = raw_input()
+					
+			self.expSubState = 1
+
+		elif self.expSubState == 1:
+			print "Waiting for action to finish ...", self.actionHasFinished
+		#	keypressed = ""
+			#while not (keypressed == " "):
+		#		keypressed = raw_input()
 			if self.actionHasFinished:
-				print "Action has finished:",self.actionHasFinished," with reward, sending initial position."
+				self.expSubState = 2
 
-				randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
-				# Compute angle:
-				xr = self.robotpose[0]
-				yr = self.robotpose[1]
-				xg = float(randpose[0]) 
-				yg = float(randpose[1])
-				dx = xg - xr
-				dy = yg - yr
-				orientcos = dx / math.sqrt(dx * dx + dy * dy) if abs(dx+dy) > 0.0 else 1.0;
-				orientsin = dy / math.sqrt(dx * dx + dy * dy) if abs(dx+dy) > 0.0 else 0.0;
-				print "Rand pose:", randpose, "orient:", 180.0 * math.acos(orientcos) / 3.14159265359 , 180.0 * math.asin(orientsin) / 3.14159265359, 180.0 * math.atan2(dy, dx) / 3.14159265359 
-				goalAngle = math.atan2(dy, dx)
-				# Action lib goal
-				print "AC goal"
-				self.pauseSystem(True)
+		elif self.expSubState == 2:	
+			print "Action has finished:", self.actionHasFinished, " with reward, sending initial position."
 
-				self.goal = MoveBaseGoal()
-				self.goal.target_pose.header.frame_id = self.goalTF
-				self.goal.target_pose.header.stamp = rospy.Time.now()
-				self.goal.target_pose.pose.position.x = float(randpose[0]) 
-				self.goal.target_pose.pose.position.y = float(randpose[1]) 
-				self.goal.target_pose.pose.orientation.x = 0.0 
-				self.goal.target_pose.pose.orientation.y = 0.0
-				self.goal.target_pose.pose.orientation.z = math.sin(goalAngle / 2.0)
-				self.goal.target_pose.pose.orientation.w = math.cos(goalAngle / 2.0)
-		
-	#			self.client.send_goal(self.goal)
-				print "Waiting ..."
-				#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+			#randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
+			randpose = self.initRandPoses.pop()
+			# Compute angle:
+			xr = self.robotpose[0]
+			yr = self.robotpose[1]
+			xg = float(randpose[0]) 
+			yg = float(randpose[1])
+			dx = xg - xr
+			dy = yg - yr
+			orientcos = dx / math.sqrt(dx * dx + dy * dy) if abs(dx+dy) > 0.0 else 1.0;
+			orientsin = dy / math.sqrt(dx * dx + dy * dy) if abs(dx+dy) > 0.0 else 0.0;
+			print "Rand pose:", randpose, "orient:", 180.0 * math.acos(orientcos) / 3.14159265359 , 180.0 * math.asin(orientsin) / 3.14159265359, 180.0 * math.atan2(dy, dx) / 3.14159265359 
+			goalAngle = math.atan2(dy, dx)
+			# Action lib goal
+			print "AC goal"
+			self.pauseSystem(True)
 
-				self.client.send_goal_and_wait(self.goal)
-				print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
-				self.backToInit = False
-				self.actionHasFinished = False
-				print "Done"
-				# authorising experts to decide :
-				self.askStopPlanning = True
-				planDecide = CommandSignal()
-				planDecide.decide = True
-				self.plde_pub.publish(planDecide)
-
-			else:
-				pass
-				# sending planning and deciding inhibition
-				if self.askStopPlanning:
-					print "Waiting for action to finish ..."
-					planDecide = CommandSignal()
-					planDecide.decide = False
-					self.plde_pub.publish(planDecide)
-					self.askStopPlanning = False
-				
+			self.goal = MoveBaseGoal()
+			self.goal.target_pose.header.frame_id = self.goalTF
+			self.goal.target_pose.header.stamp = rospy.Time.now()
+			self.goal.target_pose.pose.position.x = float(randpose[0]) 
+			self.goal.target_pose.pose.position.y = float(randpose[1]) 
+			self.goal.target_pose.pose.orientation.x = 0.0 
+			self.goal.target_pose.pose.orientation.y = 0.0
+			self.goal.target_pose.pose.orientation.z = math.sin(goalAngle / 2.0)
+			self.goal.target_pose.pose.orientation.w = math.cos(goalAngle / 2.0)
 			
+			print "eSS 2 "
+		#	keypressed = ""
+		#	while not (keypressed == " "):
+		#		keypressed = raw_input()
+	
+			self.expSubState = 3
+
+		elif self.expSubState == 3:	
+	#		self.client.send_goal(self.goal)
+			print "Waiting ..."
+			#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+
+			self.client.send_goal_and_wait(self.goal)
+			print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
+			if self.client.get_state():
+				self.expSubState = 4
+
+			#self.backToInit = False
+			#self.actionHasFinished = False
 				
-		else:
-			#self.client.wait_for_result(rospy.Duration(0.5))
-			#print self.client.get_result()
+		elif self.expSubState == 4:
 			# Update expStatus:
 			dx = self.goal.target_pose.pose.position.x - self.robotpose[0] 
 			dy = self.goal.target_pose.pose.position.y - self.robotpose[1]
@@ -296,22 +299,23 @@ class NavExpManager:
 				if self.rwdAcc < self.rwdObj:
 					print "Back to monitoring ..."
 					self.pauseSystem(False)
+					self.expState = 0
 				else:
 					print "End of Experiment !"
-					self.expStatus = "end"
+					self.expState = 2
 			elif (goalStatus == actionlib.GoalStatus.ABORTED):
 				print "Something went wrong, drive the robot manually and then press Space!"
 				keypressed = ""
 				# wait for user's manual action:
 				while not (keypressed == " "):
 					keypressed = raw_input()
-
 				print "Ok"
 				self.pauseSystem(False)
+				self.expState = 0
 			else:
 				print "Other status:", goalStatus
 
-		self.actionHasFinished = False
+		#self.actionHasFinished = False
 	
 
 	def computeReward(self, st, act):
@@ -357,15 +361,20 @@ class NavExpManager:
 	def pauseSystem(self, pausing):
 		learningStatus = Bool()
 		controlStatus = Bool()
-		if not pausing:
-			self.expStatus = "monitor"
-		self.backToInit = not pausing
+		#if not pausing:
+		#	self.expStatus = "monitor"
+		#self.backToInit = not pausing
+
 		learningStatus.data = not pausing
 		self.learningMF_pub.publish(learningStatus)
 		self.learningMB_pub.publish(learningStatus)
 		self.learningMB2_pub.publish(learningStatus)
 		controlStatus.data = not pausing
 		self.control_pub.publish(controlStatus)
+		self.askStopPlanning = not pausing
+		planDecide = CommandSignal()
+		planDecide.decide = not pausing
+		self.plde_pub.publish(planDecide)
 
 	def finish(self):
 		print "Exp done"
@@ -382,6 +391,6 @@ if __name__ == "__main__":
 	(options, args) = parser.parse_args()
 	print options, args, options.file, options.rwdObj
 	
-	expHandler = NavExpManager(options.file, options.rwdObj, options.poses)
+	expHandler = NavExpManager2(options.file, options.rwdObj, options.poses)
 	rospy.spin()
 	print "Ending ..."
