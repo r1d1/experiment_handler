@@ -29,7 +29,9 @@ class NavExpManager2:
 		self.state_sub = rospy.Subscriber("statealone", State, self.state_cb)
 		self.action_sub = rospy.Subscriber("actionToDo", Actions, self.action_cb)
 		self.actionFinished_sub = rospy.Subscriber("actionFinished", Bool, self.actionFinished_cb)
-		self.pose_sub = rospy.Subscriber("robot_pose_ekf/odom_combined", PoseWithCovarianceStamped, self.pose_cb)
+		# for tuyrtlebot :
+		self.pose_sub = rospy.Subscriber("odom_combined", PoseWithCovarianceStamped, self.pose_cb)
+		#self.pose_sub = rospy.Subscriber("robot_pose_ekf/odom_combined", PoseWithCovarianceStamped, self.pose_cb)
 
 		self.reward_pub = rospy.Publisher("rewardalone", Float32)
 		self.learningMF_pub = rospy.Publisher("learningMF", Bool)
@@ -154,6 +156,7 @@ class NavExpManager2:
 		try:
 #			(position, quaternion) = self.listener.lookupTransform(self.goalTF, msg.header.frame_id, rospy.Time(0))
 			(position, quaternion) = self.listener.lookupTransform(self.goalTF, "/base_link", rospy.Time(0))
+	#		print self.goalTF, msg.header.frame_id
 		#	print position, quaternion
 			self.robotpose[0] = position[0]
 			self.robotpose[1] = position[1]
@@ -173,6 +176,7 @@ class NavExpManager2:
 			r = self.monitor()
 			if r > 0.0:
 				self.expState = 1 # reset
+				self.expSubState = 0 # reset
 				print "Reset"
 			elif self.rwdAcc >= self.rwdObj:
 				# end
@@ -202,14 +206,9 @@ class NavExpManager2:
 				self.reward_pub.publish(rwd)
 		
 				print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
-		
-				#self.robotStateChanged = False
 				self.stateChanged = False
 				self.actionChanged = False
 				self.actionFinished = False
-			#else:
-			#	if self.actionHasFinished:
-			#		self.actionHasFinished = False
 		else :
 			print "Error in task type !"
 			exit()
@@ -221,6 +220,7 @@ class NavExpManager2:
 		#print rospy.Time.now(), rospy.get_time()
 		#if self.backToInit:
 		if self.expSubState == 0:
+			print "Sending stop plan signal"
 			# sending planning and deciding inhibition
 			planDecide = CommandSignal()
 #			planDecide.plan = False
@@ -241,7 +241,7 @@ class NavExpManager2:
 				self.expSubState = 2
 
 		elif self.expSubState == 2:	
-			print "Action has finished:", self.actionHasFinished, " with reward, sending initial position."
+			print "Action has finished:", self.actionHasFinished, " with reward, computing goal and pausing"
 
 			#randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
 			randpose = self.initRandPoses.pop()
@@ -270,21 +270,28 @@ class NavExpManager2:
 			self.goal.target_pose.pose.orientation.z = math.sin(goalAngle / 2.0)
 			self.goal.target_pose.pose.orientation.w = math.cos(goalAngle / 2.0)
 			
-			print "eSS 2 "
-		#	keypressed = ""
-		#	while not (keypressed == " "):
-		#		keypressed = raw_input()
-	
+			print "Goto :", self.goal.target_pose.pose.position.x, self.goal.target_pose.pose.position.y
+			print "From: ", self.robotpose[0], self.robotpose[1]
+			#print "Confirm to send goal :"
+			#keypressed = ""
+			#while not (keypressed == " "):
+			#	keypressed = raw_input()
+			time.sleep(1)
 			self.expSubState = 3
 
 		elif self.expSubState == 3:	
 	#		self.client.send_goal(self.goal)
-			print "Waiting ..."
-			#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
-
+			print "Sending initial position and Waiting ..."
+			
 			self.client.send_goal_and_wait(self.goal)
 			goalStatus = self.client.get_state()
+			print "Got result !"
 			print self.client.get_goal_status_text(), goalStatus, self.client.get_result()
+#			keypressed = ""
+#			while not (keypressed == " "):
+#				keypressed = raw_input()
+
+#			print "ok"
 			if (goalStatus == actionlib.GoalStatus.SUCCEEDED):
 				self.expSubState = 4
 			elif (goalStatus == actionlib.GoalStatus.ABORTED):
@@ -300,7 +307,7 @@ class NavExpManager2:
 			dx = self.goal.target_pose.pose.position.x - self.robotpose[0] 
 			dy = self.goal.target_pose.pose.position.y - self.robotpose[1]
 			dist = math.sqrt(dx*dx + dy*dy)
-			print dist, self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result(), actionlib.GoalStatus.ABORTED, actionlib.GoalStatus.SUCCEEDED
+			print "SUCCESS ! ", dist, self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
 			if self.rwdAcc < self.rwdObj:
 				print "Back to monitoring ..."
 				self.pauseSystem(False)
