@@ -15,6 +15,7 @@ import numpy as np
 roslib.load_manifest("lowlevel_actions") # In order to send goals, we need to use a package created by rosbuild and not catkin # do we ?
 from optparse import OptionParser
 
+import time
 import actionlib
 from std_msgs.msg import String, Bool, Float32
 from BP_experiment.msg import StateReward, State, Actions, CommandSignal
@@ -222,12 +223,13 @@ class NavExpManager2:
 		if self.expSubState == 0:
 			# sending planning and deciding inhibition
 			planDecide = CommandSignal()
+#			planDecide.plan = False
 			planDecide.decide = False
 			self.plde_pub.publish(planDecide)
 			#keypressed = ""
 			#while not (keypressed == " "):
 			#	keypressed = raw_input()
-					
+			time.sleep(1)		
 			self.expSubState = 1
 
 		elif self.expSubState == 1:
@@ -281,39 +283,42 @@ class NavExpManager2:
 			#print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
 
 			self.client.send_goal_and_wait(self.goal)
-			print self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result()
-			if self.client.get_state():
+			goalStatus = self.client.get_state()
+			print self.client.get_goal_status_text(), goalStatus, self.client.get_result()
+			if (goalStatus == actionlib.GoalStatus.SUCCEEDED):
 				self.expSubState = 4
+			elif (goalStatus == actionlib.GoalStatus.ABORTED):
+				self.expSubState = 5
+			#if self.client.get_state():
+			#	self.expSubState = 4
 
 			#self.backToInit = False
 			#self.actionHasFinished = False
 				
 		elif self.expSubState == 4:
-			# Update expStatus:
+			# SUCCEEDED
 			dx = self.goal.target_pose.pose.position.x - self.robotpose[0] 
 			dy = self.goal.target_pose.pose.position.y - self.robotpose[1]
 			dist = math.sqrt(dx*dx + dy*dy)
 			print dist, self.client.get_goal_status_text(), self.client.get_state(), self.client.get_result(), actionlib.GoalStatus.ABORTED, actionlib.GoalStatus.SUCCEEDED
-			goalStatus = self.client.get_state()
-			if (goalStatus == actionlib.GoalStatus.SUCCEEDED):
-				if self.rwdAcc < self.rwdObj:
-					print "Back to monitoring ..."
-					self.pauseSystem(False)
-					self.expState = 0
-				else:
-					print "End of Experiment !"
-					self.expState = 2
-			elif (goalStatus == actionlib.GoalStatus.ABORTED):
-				print "Something went wrong, drive the robot manually and then press Space!"
-				keypressed = ""
-				# wait for user's manual action:
-				while not (keypressed == " "):
-					keypressed = raw_input()
-				print "Ok"
+			if self.rwdAcc < self.rwdObj:
+				print "Back to monitoring ..."
 				self.pauseSystem(False)
 				self.expState = 0
 			else:
-				print "Other status:", goalStatus
+				print "End of Experiment !"
+				self.expState = 2
+			
+		elif self.expSubState == 5:
+			# ABORTED
+			print "Something went wrong, check and eventually drive the robot manually and then press Space!"
+			keypressed = ""
+			# wait for user's manual action:
+			while not (keypressed == " "):
+				keypressed = raw_input()
+			print "Ok"
+			self.pauseSystem(False)
+			self.expState = 0
 
 		#self.actionHasFinished = False
 	
