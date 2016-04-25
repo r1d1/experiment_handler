@@ -8,4 +8,4 @@ When making robots act in the real world using reinforcement learning, you need 
 
 If a complete robot architecture would self-generate reward (e.g. from a motivation system), in simpler architecture, we want to provide the learning feedback to our robot easily. This is the purpose of this ROS package.
 
-It was initially designed to work with the PR2 robot, but any robot being controlled by discrete RL agent will fit.
+It was initially designed to work with the PR2 robot, but any robot being controlled by discrete RL agent will fit. It has actually been used with a TurtleBot with little adaptation (mainly topic redirections)
