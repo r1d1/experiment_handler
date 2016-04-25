@@ -23,7 +23,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Point, PoseWithCovarianceStamped
 
 class NavExpManager2:
-	def __init__(self, taskfile, rwdObj, pose):
+	def __init__(self, taskfile, rwdObj, pose, expnb):
 		print "CTOR"
 		self.statereward_sub = rospy.Subscriber("statereward", StateReward, self.statereward_cb)
 		self.state_sub = rospy.Subscriber("statealone", State, self.state_cb)
@@ -80,6 +80,8 @@ class NavExpManager2:
 		self.initialPoses= []
 		self.initOrdPoses= []
 		self.initRandPoses= []
+		# if needed :
+		self.experimentNb = expnb
 		# ----------------------------------
 		self.taskfile = taskfile
 		taskFile = open(self.taskfile, 'r+')
@@ -96,16 +98,21 @@ class NavExpManager2:
 		poseFile.close()
 		for line in poseTxt:
 			self.initialPoses.append(line.split())
-			for n in np.arange(5):
+			for n in np.arange((self.rwdObj / 4.0) +1 ):
 				self.initOrdPoses.append(self.initialPoses[-1])
 
 		#print self.initOrdPoses
 		while len(self.initOrdPoses)>0:
 			self.initRandPoses.append(self.initOrdPoses.pop(np.random.randint(0,high=len(self.initOrdPoses))))
 		print self.initRandPoses
+		#c = self.initRandPoses
+		pf = "./saveInitPoses_exp"+self.experimentNb+".txt"
+		saveInitPoses=open(pf, 'w')
+		for p in self.initRandPoses[::-1]:
+			saveInitPoses.write(str(p[0])+", "+str(p[1])+"\n")
+		saveInitPoses.close()
 		#print self.initOrdPoses
-			
-			
+		
 			
 	 	# Process descriptions	
 		self.taskType = taskTxt[0]
@@ -178,6 +185,7 @@ class NavExpManager2:
 				self.expState = 1 # reset
 				self.expSubState = 0 # reset
 				print "Reset"
+		
 			elif self.rwdAcc >= self.rwdObj:
 				# end
 				self.expState = 2
@@ -193,26 +201,27 @@ class NavExpManager2:
 		#if self.robotStateChanged and self.actionChanged:
 		# When we got the action, we take the start state and compute reward
 	#	print self.taskType
-		rewardToSend = 0.0
+		self.rewardToSend = 0.0
 		if self.taskType == "goal":
 			if self.stateChanged:
 				print "GG"
-				rewardToSend = self.computeReward(self.robotState, None)
-				self.rwdAcc += rewardToSend
+				self.rewardToSend = self.computeReward(self.robotState, None)
+				self.rwdAcc += self.rewardToSend
 				
+				print "reward:", self.rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
 				# publish reward message:
 				rwd = Float32()
-				rwd.data = rewardToSend
+				rwd.data = self.rewardToSend
 				self.reward_pub.publish(rwd)
-		
-				print "reward:", rewardToSend, ", total reward:", self.rwdAcc," (",100.0*self.rwdAcc/self.rwdObj,"%)"
+
 				self.stateChanged = False
 				self.actionChanged = False
 				self.actionFinished = False
+					
 		else :
 			print "Error in task type !"
 			exit()
-		return rewardToSend
+		return self.rewardToSend # useless
 
 	def reset(self):
 		#print "Reset"
@@ -229,18 +238,26 @@ class NavExpManager2:
 			#keypressed = ""
 			#while not (keypressed == " "):
 			#	keypressed = raw_input()
-			time.sleep(1)		
-			self.expSubState = 1
+			time.sleep(2)		
+			self.expSubState = 2
 
-		elif self.expSubState == 1:
-			print "Waiting for action to finish ...", self.actionHasFinished
+#		elif self.expSubState == 1:
+#			# publish reward message:
+#			rwd = Float32()
+#			rwd.data = self.rewardToSend
+#			self.reward_pub.publish(rwd)
+#			time.sleep(1)
+#			self.expSubState = 2
+
+		elif self.expSubState == 2:	
+			print "Wait for action to finish ...", self.actionHasFinished
 		#	keypressed = ""
 			#while not (keypressed == " "):
 		#		keypressed = raw_input()
 			if self.actionHasFinished:
-				self.expSubState = 2
+				self.expSubState = 3
 
-		elif self.expSubState == 2:	
+		elif self.expSubState == 3:
 			print "Action has finished:", self.actionHasFinished, " with reward, computing goal and pausing"
 
 			#randpose = self.initialPoses[np.random.randint(0, len(self.initialPoses))]
@@ -277,9 +294,9 @@ class NavExpManager2:
 			#while not (keypressed == " "):
 			#	keypressed = raw_input()
 			time.sleep(1)
-			self.expSubState = 3
+			self.expSubState = 4
 
-		elif self.expSubState == 3:	
+		elif self.expSubState == 4:	
 	#		self.client.send_goal(self.goal)
 			print "Sending initial position and Waiting ..."
 			
@@ -293,16 +310,16 @@ class NavExpManager2:
 
 #			print "ok"
 			if (goalStatus == actionlib.GoalStatus.SUCCEEDED):
-				self.expSubState = 4
-			elif (goalStatus == actionlib.GoalStatus.ABORTED):
 				self.expSubState = 5
+			elif (goalStatus == actionlib.GoalStatus.ABORTED):
+				self.expSubState = 6
 			#if self.client.get_state():
 			#	self.expSubState = 4
 
 			#self.backToInit = False
 			#self.actionHasFinished = False
 				
-		elif self.expSubState == 4:
+		elif self.expSubState == 5:
 			# SUCCEEDED
 			dx = self.goal.target_pose.pose.position.x - self.robotpose[0] 
 			dy = self.goal.target_pose.pose.position.y - self.robotpose[1]
@@ -316,7 +333,7 @@ class NavExpManager2:
 				print "End of Experiment !"
 				self.expState = 2
 			
-		elif self.expSubState == 5:
+		elif self.expSubState == 6:
 			# ABORTED
 			print "Something went wrong, check and eventually drive the robot manually and then press Space!"
 			keypressed = ""
@@ -400,9 +417,10 @@ if __name__ == "__main__":
 	parser.add_option("-f", "--file", action="store", type="string", dest="file")
 	parser.add_option("-p", "--poses", action="store", type="string", dest="poses")
 	parser.add_option("-r", "--rwdObj", action="store", type="float", dest="rwdObj")
+	parser.add_option("-e", "--expe", action="store", type="string", dest="expe")
 	(options, args) = parser.parse_args()
-	print options, args, options.file, options.rwdObj
+	print options, args, options.file, options.rwdObj, options.expe
 	
-	expHandler = NavExpManager2(options.file, options.rwdObj, options.poses)
+	expHandler = NavExpManager2(options.file, options.rwdObj, options.poses, options.expe)
 	rospy.spin()
 	print "Ending ..."
