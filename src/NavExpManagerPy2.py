@@ -12,13 +12,13 @@ import sys
 import math
 import tf
 import numpy as np
-roslib.load_manifest("lowlevel_actions") # In order to send goals, we need to use a package created by rosbuild and not catkin # do we ?
+#roslib.load_manifest("lowlevel_actions") # In order to send goals, we need to use a package created by rosbuild and not catkin # do we ?
 from optparse import OptionParser
 
 import time
 import actionlib
 from std_msgs.msg import String, Bool, Float32
-from BP_experiment.msg import StateReward, State, Actions, CommandSignal
+from habelar_msgs.msg import StateReward, State, Actions, CommandSignal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Point, PoseWithCovarianceStamped
 

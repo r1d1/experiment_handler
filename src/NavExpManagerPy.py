@@ -17,7 +17,7 @@ from optparse import OptionParser
 
 import actionlib
 from std_msgs.msg import String, Bool, Float32
-from BP_experiment.msg import StateReward, State, Actions, CommandSignal
+from habelar_msgs.msg import StateReward, State, Actions, CommandSignal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import Point, PoseWithCovarianceStamped
 

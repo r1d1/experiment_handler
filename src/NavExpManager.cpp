@@ -15,7 +15,7 @@ NavExpManager::NavExpManager(ros::NodeHandle &nh, int experience, int duration=0
 	// state and action topics
 	state_sub = nh_.subscribe("state_publisher", 1, &NavExpManager::stateCallback, this);
 	action_sub = nh_.subscribe("actionToDo", 1, &NavExpManager::actionCallback, this);
-	//reward_pub = nh_.advertise<BP_experiment::Reward>(nodeDomain + "", 1);
+	//reward_pub = nh_.advertise<habelar_msgs::Reward>(nodeDomain + "", 1);
 	reward_pub = nh_.advertise<std_msgs::Float32>("reward_received", 1);
 	// Control Learning :
 	learningMF_pub = nh_.advertise<std_msgs::Bool>("bp_experiment/learningMF", 1);
@@ -99,7 +99,7 @@ NavExpManager::~NavExpManager(){}
 
 //==========================================================================
 // When we get the state and reward information, we update the internal State/Reward information :
-void NavExpManager::stateCallback(const BP_experiment::StateReward msg)
+void NavExpManager::stateCallback(const habelar_msgs::StateReward msg)
 {
 	std::cout << "State Callback @ " << ros::Time::now() << " with msg @ " << msg << std::endl;
 	robotState = msg;
@@ -108,7 +108,7 @@ void NavExpManager::stateCallback(const BP_experiment::StateReward msg)
 
 //--------------------------------------------------------------------------
 
-void NavExpManager::actionCallback(const BP_experiment::Actions msg)
+void NavExpManager::actionCallback(const habelar_msgs::Actions msg)
 {
 	std::cout << "Action Callback" << std::endl;
 	actionDone = msg;

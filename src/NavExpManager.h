@@ -25,8 +25,8 @@
 #include <geometry_msgs/Pose.h>
 
 // Custom messages :
-#include "BP_experiment/StateReward.h"
-#include "BP_experiment/Actions.h"
+#include "habelar_msgs/StateReward.h"
+#include "habelar_msgs/Actions.h"
 
 #define NODECONTROLRATE 80
 
@@ -59,13 +59,13 @@ class NavExpManager
 		ros::Publisher learningMF_pub;
 
 		// Actions decided and executed :
-		BP_experiment::StateReward robotState;
-		BP_experiment::Actions actionDone;
+		habelar_msgs::StateReward robotState;
+		habelar_msgs::Actions actionDone;
 
-		BP_experiment::StateReward previousState;
+		habelar_msgs::StateReward previousState;
 		
 		std_msgs::Float32 rewardToSend;
-		//BP_experiment::Reward rewardToSent;
+		//habelar_msgs::Reward rewardToSent;
 		//------------------------------------------------
 		bool robotStateChanged;
 		bool actionChanged;
@@ -94,8 +94,8 @@ class NavExpManager
 
 		bool run();
 
-		void actionCallback(BP_experiment::Actions msg);
-		void stateCallback(BP_experiment::StateReward msg);
+		void actionCallback(habelar_msgs::Actions msg);
+		void stateCallback(habelar_msgs::StateReward msg);
 		void positionCallback(geometry_msgs::Pose msg);
 
 		void timerCallback(const ros::TimerEvent&);
