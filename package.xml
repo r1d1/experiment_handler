@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <package>
-  <name>experimentHandler</name>
+  <name>experiment_handler</name>
   <version>0.0.1</version>
   <description>Some real robot experiment managers</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag --> 
-  <maintainer email="renaudo@isir.upmc.fr">Erwan Renaudo</maintainer>
+  <maintainer email="erwan.renaudo@gmail.com">Erwan Renaudo</maintainer>
 
   <!-- One license tag required, multiple allowed, one license per tag -->
   <license>BSD</license>
